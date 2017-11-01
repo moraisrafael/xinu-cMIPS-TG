@@ -146,11 +146,11 @@ _excp_0000:
 	.set noreorder
 	.set noat
 
-	mfc0 $k1, c0_context
-	lw   $k0, 0($k1)      	# k0 <- TP[context.lo]
-	lw   $k1, 8($k1)        # k1 <- TP[context.hi]
-	mtc0 $k0, c0_entrylo0   # EntryLo0 <- k0 = even element
-	mtc0 $k1, c0_entrylo1   # EntryLo1 <- k1 = odd element
+	mfc0 k1, c0_context
+	lw   k0, 0(k1)      	# k0 <- TP[context.lo]
+	lw   k1, 8(k1)        # k1 <- TP[context.hi]
+	mtc0 k0, c0_entrylo0   # EntryLo0 <- k0 = even element
+	mtc0 k1, c0_entrylo1   # EntryLo1 <- k1 = odd element
 	ehb
 	tlbwr	                # update TLB
 	eret	
@@ -197,20 +197,20 @@ _excp_0100:
 	.org x_EXCEPTION_0180,0  # exception vector_180
 	.ent _excp_0180
 _excp_0180:
-	mfc0 $k0, c0_status
-	lui  $k1, %hi(_excp_saves)
-	ori  $k1, $k1, %lo(_excp_saves)
-	sw   $k0, 1*4($k1)
-        mfc0 $k0, c0_cause
-	sw   $k0, 0*4($k1)
+	mfc0 k0, c0_status
+	lui  k1, %hi(_excp_saves)
+	ori  k1, k1, %lo(_excp_saves)
+	sw   k0, 1*4(k1)
+        mfc0 k0, c0_cause
+	sw   k0, 0*4(k1)
 	
-	andi $k0, $k0, 0x3c    # keep only the first 16 ExceptionCodes & b"00"
-	sll  $k0, $k0, 1       # displacement in vector with 8 bytes/element
-	lui  $k1, %hi(excp_tbl)
-        ori  $k1, $k1, %lo(excp_tbl)
-	add  $k1, $k1, $k0
+	andi k0, k0, 0x3c    # keep only the first 16 ExceptionCodes & b"00"
+	sll  k0, k0, 1       # displacement in vector with 8 bytes/element
+	lui  k1, %hi(excp_tbl)
+        ori  k1, k1, %lo(excp_tbl)
+	add  k1, k1, k0
 	nop
-	jr   $k1
+	jr   k1
 	nop
 
 excp_tbl: # see Table 8-25, pg 95,96
@@ -260,12 +260,12 @@ h_CpU:
 h_Ov:
 
 _excp_0180ret:
-	lui  $k1, %hi(_excp_saves) # Read previous contents of STATUS
-	ori  $k1, $k1, %lo(_excp_saves)
-	lw   $k0, 1*4($k1)
+	lui  k1, %hi(_excp_saves) # Read previous contents of STATUS
+	ori  k1, k1, %lo(_excp_saves)
+	lw   k0, 1*4(k1)
         nop                        #  and do not modify its contents
-	ori  $k0, $k0, M_StatusIEn #  and keep user/kernel mode
-	mtc0 $k0, c0_status	   #  but enable all interrupts
+	ori  k0, k0, M_StatusIEn #  and keep user/kernel mode
+	mtc0 k0, c0_status	   #  but enable all interrupts
 	ehb
 	eret			   # Return from exception
 
@@ -275,34 +275,87 @@ _excp_0180ret:
 
 
 	##
-	##===============================================================
-	## interrupt handlers at exception vector 0200
-	##
-	# declare all handlers here, these must be in file handlers.s
-	.extern countCompare  # IRQ7 = hwIRQ5, Cop0 counter
-	.extern UARTinterr    # IRQ6 - hwIRQ4, see vhdl/tb_cMIPS.vhd
-	.extern DMAinterr     # IRQ5 - hwIRQ3, see vhdl/tb_cMIPS.vhd
-	.extern extCounter    # IRQ4 - hwIRQ2, see vhdl/tb_cMIPS.vhd
+        ##===============================================================
+        ## interrupt handlers at exception vector 0200
+        ##
+        # declare all handlers here, these must be in file handlers.s
+        .extern countCompare  # IRQ7 = hwIRQ5, Cop0 counter
+        .extern ttyInterrupt  # IRQ6 - hwIRQ4, see vhdl/tb_cMIPS.vhd
+        .extern extCounter    # IRQ5 - hwIRQ3, see vhdl/tb_cMIPS.vhd
 
-	.set M_CauseIM,0xff00       # keep bits 15..8 -> IM = IP
+	.extern clkhandler
+	
+        .set M_CauseIM,0x0000ff00   # keep bits 15..8 -> IM = IP
+        .set M_StatusIEn,0x0000f311 # user mode, enable irq7..4,irq1,irq0
+
+        .set noreorder
+
+        .org x_EXCEPTION_0200,0     # exception vector_200, interrupt handlers
+        .ent _excp_0200
+excp_0200:
+_excp_0200:
+
+	# copied from intdispatch.S
+	
+save:	addiu   sp, sp, -IRQREC_SIZE    /* Allocate space on stack      */
+        mfc0    k1, CP0_EPC             /* Save interrupted PC value    */
+        sw      AT, IRQREC_AT(sp)       /* Save assembler temp reg first*/
+	sw      k1, IRQREC_EPC(sp)
+        .set at
+        # .set reorder
+        sw      v0, IRQREC_V0(sp)       /* Save all general purpose regs*/
+        sw      v1, IRQREC_V1(sp)
+        sw      a0, IRQREC_A0(sp)
+        sw      a1, IRQREC_A1(sp)
+        sw      a2, IRQREC_A2(sp)
+        sw      a3, IRQREC_A3(sp)
+	sw      t0, IRQREC_T0(sp)
+        sw      t1, IRQREC_T1(sp)
+        sw      t2, IRQREC_T2(sp)
+        sw      t3, IRQREC_T3(sp)
+        sw      t4, IRQREC_T4(sp)
+        sw      t5, IRQREC_T5(sp)
+        sw      t6, IRQREC_T6(sp)
+        sw      t7, IRQREC_T7(sp)
+        sw      s0, IRQREC_S0(sp)
+        sw      s1, IRQREC_S1(sp)
+        sw      s2, IRQREC_S2(sp)
+        sw      s3, IRQREC_S3(sp)
+        sw      s4, IRQREC_S4(sp)
+        sw      s5, IRQREC_S5(sp)
+        sw      s6, IRQREC_S6(sp)
+        sw      s7, IRQREC_S7(sp)
+        sw      t8, IRQREC_T8(sp)
+        sw      t9, IRQREC_T9(sp)
+        sw      k0, IRQREC_K0(sp)
+        sw      k1, IRQREC_K1(sp)
+        sw      gp, IRQREC_S8(sp)
+        sw      sp, IRQREC_SP(sp)
+        sw      fp, IRQREC_S9(sp)
+        sw      ra, IRQREC_RA(sp)
+        # sw      zero, IRQREC_ZER(sp)
+        mfhi    t0                      /* Save hi and lo               */
+        mflo    t1
+        sw      t0, IRQREC_HI(sp)
+        sw      t1, IRQREC_LO(sp)
+
+	mfc0    k0, c0_cause		/* save CAUSE and STATUS	*/
+        mfc0    k1, c0_status
+	sw      k0, IRQREC_CAUSE(sp)
+        sw      k1, IRQREC_STATUS(sp)
 
 	.set noreorder
+dispatch:
+	andi k0, k0, M_CauseIM   # Keep only IP bits from Cause
+        and  k0, k0, k1          # and mask with STATUS's IM bits 
+        srl  k0, k0, 10          # keep only 3 MS bits of IP (irq7..5)
+        lui  k1, %hi(handlers_tbl) # plus displacement in j-table of 8 bytes
+        ori  k1, k1, %lo(handlers_tbl)
+        add  k1, k1, k0
+	nop
+        jr   k1
+	nop
 	
-	.org x_EXCEPTION_0200,0     # exception vector_200, interrupt handlers
-	.ent _excp_0200
-_excp_0200:
-	mfc0 $k0, c0_cause
-	mfc0 $k1, c0_status
-	andi $k0, $k0, M_CauseIM   # Keep only IP bits from Cause
-	and  $k0, $k0, $k1         #   and mask with IM bits
-	srl  $k0, $k0, 9	   # Keep only 4 MS bits of IP (irq7..4)
-	lui  $k1, %hi(handlers_tbl) # plus displacement in j-table of 8 bytes
-	ori  $k1, $k1, %lo(handlers_tbl)
-	add  $k1, $k1, $k0
-	nop
-	jr   $k1
-	nop
-
 	## the code for each handler must contain an exception return (eret)
 handlers_tbl:
         j dismiss                  # no request: 000
@@ -341,14 +394,116 @@ handlers_tbl:
         nop
         j countCompare
         nop
+
+
+	##
+	## code replicated from system/dispatch.c
+	##
+	# mask = disable();	/* Disable interrupts for duration */
+uart:	addiu   sp, sp, -8	# make room in stack
+        mfc0    v0, CP0_STATUS
+        li      a0, ~STATUS_IE
+        and     a1, v0, a0
+	sw      v0, 4(sp)	# and save STATUS there
 	
-dismiss: # No pending request, must have been noise
-	 #  do nothing and return
+	# exlreset();		/* Reset system-wide exception bit */
+	li      a2, ~STATUS_EXL
+        and     v0, a1, a2
+	mtc0    a1, CP0_STATUS
+	
+	# (*handler) ();	/* Invoke device-specific handler  */
+	jal ttyInterrupt
+	nop
+	
+	# exlset();		/* Set system-wide exception bit   */
+	# restore(mask);
+	lw      v0, 4(sp)	# recover saved STATUS
+	addiu   sp, sp, 8
+        li      a2, STATUS_EXL
+        or      v0, v0, a2
+        mtc0    v0, CP0_STATUS
+	j   _restore
+	nop
+	
 
-_excp_0200ret:
-	eret			   # Return from interrupt
+	# mask = disable();	/* Disable interrupts for duration */
+clk:	addiu   sp, sp, -8	# make room in stack
+        mfc0    v0, CP0_STATUS
+        li      a0, ~STATUS_IE
+        and     a1, v0, a0
+	sw      v0, 4(sp)	# and save STATUS there
+	
+	# exlreset();		/* Reset system-wide exception bit */
+	li      a2, ~STATUS_EXL
+        and     v0, a1, a2
+	mtc0    a1, CP0_STATUS
+	
+	# (*handler) ();	/* Invoke device-specific handler  */
+	jal clkhandler		  # clk handler MUST return to this address
+	nop
 
-	.end _excp_0200
+	# exlset();		/* Set system-wide exception bit   */
+	# restore(mask);
+	lw      v0, 4(sp)	# recover saved STATUS
+	addiu   sp, sp, 8
+        li      a2, STATUS_EXL
+        or      v0, v0, a2
+        mtc0    v0, CP0_STATUS
+	# j   _restore
+	# nop
+	
+_restore:
+        lw      t0, IRQREC_HI(sp)       /*  restore all state           */
+        lw      t1, IRQREC_LO(sp)
+        mthi    t0
+        mtlo    t1
+        lw      ra, IRQREC_RA(sp)       /* Restore general purpose regs */
+        lw      fp, IRQREC_S9(sp)
+        lw      gp, IRQREC_S8(sp)
+        lw      t9, IRQREC_T9(sp)
+        lw      t8, IRQREC_T8(sp)
+        lw      s7, IRQREC_S7(sp)
+        lw      s6, IRQREC_S6(sp)
+        lw      s5, IRQREC_S5(sp)
+        lw      s4, IRQREC_S4(sp)
+        lw      s3, IRQREC_S3(sp)
+        lw      s2, IRQREC_S2(sp)
+        lw      s1, IRQREC_S1(sp)
+        lw      s0, IRQREC_S0(sp)
+        lw      t7, IRQREC_T7(sp)
+        lw      t6, IRQREC_T6(sp)
+        lw      t5, IRQREC_T5(sp)
+        lw      t4, IRQREC_T4(sp)
+        lw      t3, IRQREC_T3(sp)
+        lw      t2, IRQREC_T2(sp)
+        lw      t1, IRQREC_T1(sp)
+        lw      t0, IRQREC_T0(sp)
+        lw      a3, IRQREC_A3(sp)
+        lw      a2, IRQREC_A2(sp)
+        lw      a1, IRQREC_A1(sp)
+        lw      a0, IRQREC_A0(sp)
+        lw      v1, IRQREC_V1(sp)
+        lw      v0, IRQREC_V0(sp)
+
+        .set noreorder
+        .set noat
+        lw    k0, IRQREC_EPC(sp)        /* Restore interrupted PC value */
+        lw    AT, IRQREC_AT(sp)         /* Restore assembler temp reg   */
+        mtc0  k0, CP0_EPC
+
+dismiss:
+	lw    k0, IRQREC_STATUS(sp)     /* Restore global status reg    */
+        addiu sp, sp, IRQREC_SIZE       /* Restore stack pointer        */
+        ori   k0, k0, M_StatusIEn 
+
+	addi  k1, zero, -3         // leave exception mode
+	and   k0, k0, k1           // check this
+
+	mtc0  k0, CP0_STATUS
+        eret                            /* Return from interrupt        */
+	nop
+	nop
+        .end _excp_0200
 	#----------------------------------------------------------------
 
 
@@ -509,6 +664,291 @@ PT_update:
         ##---------------------------------------------------------------
 
 
+
+
+##===============================================================
+#from cmips/include/handlers.s
+
+	#=================================================================
+	# handle TLB Modified exception -- store to page with bit dirty=0
+	#
+	# (a) fix TLB entry, by setting dirty=1 ;
+	# (b) check permissions in PT entry and (maybe) kill the process
+	#     OR mark PT entry as Used and Modified, then
+	#     update TLB entry.
+	#
+	.global _excp_saves
+	.global _excp_0180ret
+	.global handle_Mod
+	.set noreorder
+
+	.equ TP_UNMAP,   0x0000
+	.equ TP_MAPPED,  0x0003  # mapped OR on sec-mem OR locked
+	.equ TP_SEC_MEM, 0x0002  # on sec-mem
+	.equ TP_LOCKED,  0x0003  # locked
+	.equ TP_WR_ABLE, 0x0008  # locked
+	.equ TP_USED,	0x0010	# page was referenced
+	.equ TP_MODIF,	0x0020	# page was modified (is dirty)
+	.equ TLB_DIRTY,	0x0004	# page was modified (is dirty)
+	
+	.ent handle_Mod
+handle_Mod:			# EntryHi points to offending TLB entry
+	tlbp			# what is the offender's index?
+	lui  k1, %hi(_excp_saves)
+        ori  k1, k1, %lo(_excp_saves)
+	sw   a0,  9*4(k1)	# save registers
+	sw   a1, 10*4(k1)
+	sw   a2, 11*4(k1)
+
+	mfc0 a0, c0_badvaddr
+	andi a0, a0, 0x1000	# check if even or odd page
+	beq  a0, zero, M_even
+	mfc0 a0, c0_context
+
+M_odd:	addi a2, a0, 12	# address for odd entry (intLo1)
+	mfc0 k0, c0_entrylo1
+	ori  k0, k0, TLB_DIRTY # mark TLB entry as dirty/writable
+	j    M_test
+	mtc0 k0, c0_entrylo1
+	
+M_even: addi a2, a0, 4	# address for even entry (intLo0)
+	mfc0 k0, c0_entrylo0
+	ori  k0, k0, TLB_DIRTY # mark TLB entry as dirty/writable
+	mtc0 k0, c0_entrylo0
+
+M_test:	lw   a1, 0(a2)	# read PT[badVAddr].intLo{0,1}
+	mfc0 k0, c0_badvaddr	# get faulting address
+	andi a0, a1, TP_MAPPED	# check if page is mapped
+	nop
+	beq  a0, zero, M_seg_fault	# no, abort simulation
+	nop
+
+	andi a0, a1, TP_WR_ABLE	# check if page is writable
+	nop
+	beq  a0, zero, M_prot_viol	# no, abort simulation
+	nop
+
+	andi a0, a1, TP_SEC_MEM	# check if page is in secondary memory
+	nop
+	bne  a0, zero, M_sec_mem	# yes, abort simulation
+	nop
+
+	mfc0 a0, c0_epc	# check if fault is on an instruction
+	nop
+	beq  a0, k0, M_prot_viol	# k0 is badVAddr, if so, abort
+	nop
+
+	ori  a1, a1, (TP_USED | TP_MODIF) # mark PT entry as modified, used
+	sw   a1, 0(a2)
+
+	tlbwi			# write entry with dirty bit=1 back to TLB
+	
+	lw   a0,  9*4(k1)	# restore saved registers and return
+	lw   a1, 10*4(k1)
+	lw   a2, 11*4(k1)
+	j    _excp_0180ret
+	nop
+	
+M_seg_fault:	# print message and abort simulation
+	la   k1, x_IO_BASE_ADDR
+	sw   k0, 0(k1)
+	jal  cmips_kmsg
+	la   k1, 3		# segmentation fault
+	nop
+	nop
+	nop
+	wait 0x31
+	
+M_prot_viol:	# print message and abort simulation
+	la   k1, x_IO_BASE_ADDR
+	sw   k0, 0(k1)
+	jal  cmips_kmsg
+	la   k1, 2		# protection violation
+	nop
+	nop
+	nop
+	wait 0x32
+
+M_sec_mem:	# print message and abort simulation
+	la   k1, x_IO_BASE_ADDR
+	sw   k0, 0(k1)
+	jal  cmips_kmsg
+	la   k1, 4		# secondary memory
+	nop
+	nop
+	nop
+	wait 0x33
+	
+	.end handle_Mod
+	#----------------------------------------------------------------
+
+
+	#================================================================
+	# handle TLB Load exception: double-fault caused by a TLB miss
+	#   to the Page Table -- mapping which points to PT is not on TLB
+	#
+	# (a) fix the fault by (re)loading the mapping into TLB[4];
+	# (b) check permissions in PT entry and (maybe) kill the process.
+	#
+	.global handle_TLBL
+	.global _PT
+        .set MIDDLE_RAM, (x_DATA_BASE_ADDR + (x_DATA_MEM_SZ/2))
+
+	.ent handle_TLBL
+handle_TLBL:			# EntryHi points to offending TLB entry
+	tlbp			# probe it to find the offender's index
+	lui  k1, %hi(_excp_saves)
+        ori  k1, k1, %lo(_excp_saves)
+	sw   a0,  9*4(k1)
+	sw   a1, 10*4(k1)
+	sw   a2, 11*4(k1)
+
+	mfc0 a0, c0_badvaddr
+
+	# check is fault is to address below the PT
+	la   a1, (_PT + (x_INST_BASE_ADDR >>13)*16)
+
+	slt  a2, a0, a1	# a2 <- (badVAddr <= PageTable_bottom)
+	bne  a2, zero, L_chks	#   fault is not to PageTable
+	nop
+
+	# check is fault is to address above the PT
+	# la   a1, ( (_PT+2*4096) + (x_INST_BASE_ADDR >>13)*16)
+
+	# slt  a2, a1, a0	# a2 <- (badVAddr > PageTable_top)
+	# bne  a2, zero, L_chks	#   fault is not to PageTable
+	# nop
+	
+	# this is same code as in start.s
+        # get physical page number for two pages at the bottom of PageTable
+        la    a0, ( MIDDLE_RAM >>13 )<<13
+        mtc0  a0, c0_entryhi           # tag for bottom double-page
+
+        la    a0, ( (MIDDLE_RAM + 0*4096) >>12 )<<6
+        ori   a1, a0, 0b00000000000000000000000000000111 # ccc=0, d,v,g1
+        mtc0  a1, c0_entrylo0          # bottom page (even)
+
+        la    a0, ( (MIDDLE_RAM + 1*4096) >>12 )<<6
+        ori   a1, a0, 0b00000000000000000000000000000111 # ccc=0, d,v,g1
+        mtc0  a1, c0_entrylo1          # bottom page + 1 (odd)
+
+        # and write it to TLB[4]
+        li    k0, 4
+        mtc0  k0, c0_index
+        tlbwi
+	j     L_ret		# all work done, return
+	nop
+
+L_chks: andi a0, a0, 0x1000	# check if even or odd page
+	nop
+	beq  a0, zero, L_even
+	mfc0 a0, c0_context
+
+L_odd:	j    L_test
+	addi a2, a0, 12	# address for odd intLo1 entry
+	
+L_even: addi a2, a0, 4	# address for even intLo0 entry
+
+L_test:	lw   a1, 0(a2)	# get intLo{0,1}
+	mfc0 k0, c0_badvaddr	# get faulting address for printing
+	andi a0, a1, TP_MAPPED # check if page is mapped
+	nop
+	beq  a0, zero, M_seg_fault	# no, abort simulation
+	nop
+
+	andi a0, a1, TP_SEC_MEM	# check if page is in secondary memory
+	nop
+	bne  a0, zero, M_sec_mem	# yes, abort simulation
+	nop
+
+	ori  a1, a1, TP_USED	# mark PT entry as used
+	# sw   a1, 0(a2)
+
+	# if this were handler_TLBS, now is the time to also mark the
+	#    PT entry as Modified
+	# mark PT entry as used, writable and modified
+	ori  a1, a1, (TP_USED | TP_MODIF | TP_WR_ABLE)
+	sw   a1, 0(a2)
+	
+L_ret:	lw   a0,  9*4(k1)	# nothing else to do, return
+	lw   a1, 10*4(k1)
+	lw   a2, 11*4(k1)
+	j    _excp_0180ret
+	nop
+
+	.end handle_TLBL
+	#----------------------------------------------------------------
+
+
+	#================================================================
+	# purge an entry from the TLB
+	# int TLB_purge(void *V_addr)
+	#   returns 0 if V_addr purged, 1 if V_addr not in TLB (probe failure)
+	#
+	.global TLB_purge
+	.text
+	.set noreorder
+	.ent TLB_purge
+TLB_purge:
+	srl  a0, a0, 13	# clear out in-page address bits
+	sll  a0, a0, 13	# 
+	mtc0 a0, c0_entryhi
+	nop
+	tlbp			# probe the TLB
+	nop
+	mfc0 a0, c0_index	# check for hit
+	srl  a0, a0, 31	# keeo only MSbit
+	nop
+	bne  a0, zero, pu_miss # address not in TLB
+	move v0, a0		# V_addr not in TLB
+
+	tlbr			# read the entry
+	li   a0, -8192		# -8192 = 0xffff.e000
+	mtc0 a0, c0_entryhi	# and write an un-mapped address to tag
+
+	addi v0, zero, -3	# -3 = 0xffff.fffd to clear valid bit
+	mfc0 a0, c0_entrylo0	# invalidate the mappings
+	and  a0, v0, a0
+	mtc0 a0, c0_entrylo0
+
+	mfc0 a0, c0_entrylo1
+	and  a0, v0, a0
+	mtc0 a0, c0_entrylo1
+	move v0, zero		# V_addr was purged from TLB
+
+	tlbwi			# write invalid mappings to TLB
+	ehb
+	
+pu_miss: jr  ra
+	nop
+	.end TLB_purge
+	##---------------------------------------------------------------
+
+
+	#================================================================	
+	# print message to simulator's stdout end stop simulation
+	#
+	# k0 holds exception code
+	# exception_report(code, cause, epc, badVAddr)
+	.text
+	.global excp_report, exception_report
+	.ent excp_report
+excp_report:
+	srl  a0, k0, 3
+	mfc0 a1, c0_cause
+	mfc0 a2, c0_epc
+	mfc0 a3, c0_badvaddr
+	j    exception_report
+	nop
+	.end excp_report
+
+
+
+
+
+
+
+##---------------------------------------------------------------
 
        ##===============================================================
         ## Page Table
@@ -791,277 +1231,3 @@ PTbase: .word  ( (x_INST_BASE_ADDR +  0*4096) >>6) | 0b000011
         # .space (5*4096 - 8*16), 0
 
 _endPT:
-
-	#=================================================================
-	# handle TLB Modified exception -- store to page with bit dirty=0
-	#
-	# (a) fix TLB entry, by setting dirty=1 ;
-	# (b) check permissions in PT entry and (maybe) kill the process
-	#     OR mark PT entry as Used and Modified, then
-	#     update TLB entry.
-	#
-	.global _excp_saves
-	.global _excp_0180ret
-	.global handle_Mod
-	.set noreorder
-
-	.equ TP_UNMAP,   0x0000
-	.equ TP_MAPPED,  0x0003  # mapped OR on sec-mem OR locked
-	.equ TP_SEC_MEM, 0x0002  # on sec-mem
-	.equ TP_LOCKED,  0x0003  # locked
-	.equ TP_WR_ABLE, 0x0008  # locked
-	.equ TP_USED,	0x0010	# page was referenced
-	.equ TP_MODIF,	0x0020	# page was modified (is dirty)
-	.equ TLB_DIRTY,	0x0004	# page was modified (is dirty)
-	
-	.ent handle_Mod
-handle_Mod:			# EntryHi points to offending TLB entry
-	tlbp			# what is the offender's index?
-	lui  $k1, %hi(_excp_saves)
-        ori  $k1, $k1, %lo(_excp_saves)
-	sw   $a0,  9*4($k1)	# save registers
-	sw   $a1, 10*4($k1)
-	sw   $a2, 11*4($k1)
-
-	mfc0 $a0, c0_badvaddr
-	andi $a0, $a0, 0x1000	# check if even or odd page
-	beq  $a0, $zero, M_even
-	mfc0 $a0, c0_context
-
-M_odd:	addi $a2, $a0, 12	# address for odd entry (intLo1)
-	mfc0 $k0, c0_entrylo1
-	ori  $k0, $k0, TLB_DIRTY # mark TLB entry as dirty/writable
-	j    M_test
-	mtc0 $k0, c0_entrylo1
-	
-M_even: addi $a2, $a0, 4	# address for even entry (intLo0)
-	mfc0 $k0, c0_entrylo0
-	ori  $k0, $k0, TLB_DIRTY # mark TLB entry as dirty/writable
-	mtc0 $k0, c0_entrylo0
-
-M_test:	lw   $a1, 0($a2)	# read PT[badVAddr].intLo{0,1}
-	mfc0 $k0, c0_badvaddr	# get faulting address
-	andi $a0, $a1, TP_MAPPED	# check if page is mapped
-	nop
-	beq  $a0, $zero, M_seg_fault	# no, abort simulation
-	nop
-
-	andi $a0, $a1, TP_WR_ABLE	# check if page is writable
-	nop
-	beq  $a0, $zero, M_prot_viol	# no, abort simulation
-	nop
-
-	andi $a0, $a1, TP_SEC_MEM	# check if page is in secondary memory
-	nop
-	bne  $a0, $zero, M_sec_mem	# yes, abort simulation
-	nop
-
-	mfc0 $a0, c0_epc	# check if fault is on an instruction
-	nop
-	beq  $a0, $k0, M_prot_viol	# k0 is badVAddr, if so, abort
-	nop
-
-	ori  $a1, $a1, (TP_USED | TP_MODIF) # mark PT entry as modified, used
-	sw   $a1, 0($a2)
-
-	tlbwi			# write entry with dirty bit=1 back to TLB
-	
-	lw   $a0,  9*4($k1)	# restore saved registers and return
-	lw   $a1, 10*4($k1)
-	lw   $a2, 11*4($k1)
-	j    _excp_0180ret
-	nop
-	
-M_seg_fault:	# print message and abort simulation
-	la   $k1, x_IO_BASE_ADDR
-	sw   $k0, 0($k1)
-	jal  cmips_kmsg
-	la   $k1, 3		# segmentation fault
-	nop
-	nop
-	nop
-	wait 0x31
-	
-M_prot_viol:	# print message and abort simulation
-	la   $k1, x_IO_BASE_ADDR
-	sw   $k0, 0($k1)
-	jal  cmips_kmsg
-	la   $k1, 2		# protection violation
-	nop
-	nop
-	nop
-	wait 0x32
-
-M_sec_mem:	# print message and abort simulation
-	la   $k1, x_IO_BASE_ADDR
-	sw   $k0, 0($k1)
-	jal  cmips_kmsg
-	la   $k1, 4		# secondary memory
-	nop
-	nop
-	nop
-	wait 0x33
-	
-	.end handle_Mod
-	#----------------------------------------------------------------
-
-
-	#================================================================
-	# handle TLB Load exception: double-fault caused by a TLB miss
-	#   to the Page Table -- mapping which points to PT is not on TLB
-	#
-	# (a) fix the fault by (re)loading the mapping into TLB[4];
-	# (b) check permissions in PT entry and (maybe) kill the process.
-	#
-	.global handle_TLBL
-	.global _PT
-        .set MIDDLE_RAM, (x_DATA_BASE_ADDR + (x_DATA_MEM_SZ/2))
-
-	.ent handle_TLBL
-handle_TLBL:			# EntryHi points to offending TLB entry
-	tlbp			# probe it to find the offender's index
-	lui  $k1, %hi(_excp_saves)
-        ori  $k1, $k1, %lo(_excp_saves)
-	sw   $a0,  9*4($k1)
-	sw   $a1, 10*4($k1)
-	sw   $a2, 11*4($k1)
-
-	mfc0 $a0, c0_badvaddr
-
-	# check is fault is to address below the PT
-	la   $a1, (_PT + (x_INST_BASE_ADDR >>13)*16)
-
-	slt  $a2, $a0, $a1	# a2 <- (badVAddr <= PageTable_bottom)
-	bne  $a2, $zero, L_chks	#   fault is not to PageTable
-	nop
-
-	# check is fault is to address above the PT
-	# la   $a1, ( (_PT+2*4096) + (x_INST_BASE_ADDR >>13)*16)
-
-	# slt  $a2, $a1, $a0	# a2 <- (badVAddr > PageTable_top)
-	# bne  $a2, $zero, L_chks	#   fault is not to PageTable
-	# nop
-	
-	# this is same code as in start.s
-        # get physical page number for two pages at the bottom of PageTable
-        la    $a0, ( MIDDLE_RAM >>13 )<<13
-        mtc0  $a0, c0_entryhi           # tag for bottom double-page
-
-        la    $a0, ( (MIDDLE_RAM + 0*4096) >>12 )<<6
-        ori   $a1, $a0, 0b00000000000000000000000000000111 # ccc=0, d,v,g1
-        mtc0  $a1, c0_entrylo0          # bottom page (even)
-
-        la    $a0, ( (MIDDLE_RAM + 1*4096) >>12 )<<6
-        ori   $a1, $a0, 0b00000000000000000000000000000111 # ccc=0, d,v,g1
-        mtc0  $a1, c0_entrylo1          # bottom page + 1 (odd)
-
-        # and write it to TLB[4]
-        li    $k0, 4
-        mtc0  $k0, c0_index
-        tlbwi
-	j     L_ret		# all work done, return
-	nop
-
-L_chks: andi $a0, $a0, 0x1000	# check if even or odd page
-	nop
-	beq  $a0, $zero, L_even
-	mfc0 $a0, c0_context
-
-L_odd:	j    L_test
-	addi $a2, $a0, 12	# address for odd intLo1 entry
-	
-L_even: addi $a2, $a0, 4	# address for even intLo0 entry
-
-L_test:	lw   $a1, 0($a2)	# get intLo{0,1}
-	mfc0 $k0, c0_badvaddr	# get faulting address for printing
-	andi $a0, $a1, TP_MAPPED # check if page is mapped
-	nop
-	beq  $a0, $zero, M_seg_fault	# no, abort simulation
-	nop
-
-	andi $a0, $a1, TP_SEC_MEM	# check if page is in secondary memory
-	nop
-	bne  $a0, $zero, M_sec_mem	# yes, abort simulation
-	nop
-
-	ori  $a1, $a1, TP_USED	# mark PT entry as used
-	# sw   $a1, 0($a2)
-
-	# if this were handler_TLBS, now is the time to also mark the
-	#    PT entry as Modified
-	# mark PT entry as used, writable and modified
-	ori  $a1, $a1, (TP_USED | TP_MODIF | TP_WR_ABLE)
-	sw   $a1, 0($a2)
-	
-L_ret:	lw   $a0,  9*4($k1)	# nothing else to do, return
-	lw   $a1, 10*4($k1)
-	lw   $a2, 11*4($k1)
-	j    _excp_0180ret
-	nop
-
-	.end handle_TLBL
-	#----------------------------------------------------------------
-
-
-	#================================================================
-	# purge an entry from the TLB
-	# int TLB_purge(void *V_addr)
-	#   returns 0 if V_addr purged, 1 if V_addr not in TLB (probe failure)
-	#
-	.global TLB_purge
-	.text
-	.set noreorder
-	.ent TLB_purge
-TLB_purge:
-	srl  $a0, $a0, 13	# clear out in-page address bits
-	sll  $a0, $a0, 13	# 
-	mtc0 $a0, c0_entryhi
-	nop
-	tlbp			# probe the TLB
-	nop
-	mfc0 $a0, c0_index	# check for hit
-	srl  $a0, $a0, 31	# keeo only MSbit
-	nop
-	bne  $a0, $zero, pu_miss # address not in TLB
-	move $v0, $a0		# V_addr not in TLB
-
-	tlbr			# read the entry
-	li   $a0, -8192		# -8192 = 0xffff.e000
-	mtc0 $a0, c0_entryhi	# and write an un-mapped address to tag
-
-	addi $v0, $zero, -3	# -3 = 0xffff.fffd to clear valid bit
-	mfc0 $a0, c0_entrylo0	# invalidate the mappings
-	and  $a0, $v0, $a0
-	mtc0 $a0, c0_entrylo0
-
-	mfc0 $a0, c0_entrylo1
-	and  $a0, $v0, $a0
-	mtc0 $a0, c0_entrylo1
-	move $v0, $zero		# V_addr was purged from TLB
-
-	tlbwi			# write invalid mappings to TLB
-	ehb
-	
-pu_miss: jr  $ra
-	nop
-	.end TLB_purge
-	##---------------------------------------------------------------
-
-
-	#================================================================	
-	# print message to simulator's stdout end stop simulation
-	#
-	# k0 holds exception code
-	# exception_report(code, cause, epc, badVAddr)
-	.text
-	.global excp_report, exception_report
-	.ent excp_report
-excp_report:
-	srl  $a0, $k0, 3
-	mfc0 $a1, c0_cause
-	mfc0 $a2, c0_epc
-	mfc0 $a3, c0_badvaddr
-	j    exception_report
-	nop
-	.end excp_report
-
