@@ -1419,10 +1419,10 @@ begin
 
 
   -- uncomment this when making use of the TLB CHANGE
-  -- EX_addr <= phy_d_addr;                -- with TLB
+  EX_addr <= phy_d_addr;                -- with TLB
 
   -- uncomment this when NOT making use of the TLB
-  EX_addr <= v_addr;                    -- without TLB  
+  -- EX_addr <= v_addr;                    -- without TLB  
 
   -- assert ( (phy_d_addr = v_addr) and (EX_aVal = '0') )  -- DEBUG
   --  report LF&"mapping mismatch V:P "&SLV32HEX(v_addr)&":"&SLV32HEX(phy_d_addr);
@@ -2764,14 +2764,14 @@ begin
     end if;
 
     -- uncomment when making use of the TLB
-    -- TLB_excp_type <= i_excp_type;
-    -- tlb_stage_MM  <= i_stage_mm;
-    -- tlb_exception <= i_exception and not(SL2BOOL(tlb_ex_2));
+    TLB_excp_type <= i_excp_type;
+    tlb_stage_MM  <= i_stage_mm;
+    tlb_exception <= i_exception and not(SL2BOOL(tlb_ex_2));
 
     -- uncomment when NOT making use of the TLB
-    TLB_excp_type <= exNOP;
-    tlb_stage_MM  <= FALSE;
-    tlb_exception <= FALSE;
+    -- TLB_excp_type <= exNOP;
+    -- tlb_stage_MM  <= FALSE;
+    -- tlb_exception <= FALSE;
 
   end process MMU_exceptions; -- -----------------------------------------
 

@@ -109,6 +109,8 @@ _start:
 	la	t0, minheap
 	sw	s0, 0(t0)
 
+	la      k0, _PT
+	mtc0    k0, c0_context
 
         # STATUS: cop0, hw interrupt IRQ7,IRQ6,IRQ5,IRQ4 enabled, user mode
         li      k0, 0x1000f011
@@ -369,30 +371,30 @@ handlers_tbl:
         nop #j DMAinterr
         nop
 	
-        j UARTinterr               # mid priority, IRQ6: 01xx
+        j uart                     # mid priority, IRQ6: 01xx
         nop
-        j UARTinterr
+        j uart
         nop
-        j UARTinterr
+        j uart
         nop
-        j UARTinterr
+        j uart
         nop
 
-        j countCompare             # highest priority, IRQ7: 1xxx
+        j clk             # highest priority, IRQ7: 1xxx
         nop
-        j countCompare
+        j clk
         nop
-        j countCompare
+        j clk
         nop
-        j countCompare
+        j clk
         nop
-        j countCompare
+        j clk
         nop
-        j countCompare
+        j clk
         nop
-        j countCompare
+        j clk
         nop
-        j countCompare
+        j clk
         nop
 
 
@@ -1017,8 +1019,9 @@ excp_report:
 	mfc0 a1, c0_cause
 	mfc0 a2, c0_epc
 	mfc0 a3, c0_badvaddr
-	# j    exception_report
-	jr ra
+	# jal cmips_kmsg
+        nop
+_do_halt: j _do_halt
 	nop
 	.end excp_report
 

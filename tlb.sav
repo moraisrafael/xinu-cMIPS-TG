@@ -1,19 +1,19 @@
 [*]
 [*] GTKWave Analyzer v3.3.37 (w)1999-2012 BSI
-[*] Sun Jul 12 01:10:23 2015
+[*] Sat Mar 25 15:06:05 2017
 [*]
 [dumpfile] "/home/roberto/cMIPS/v_cMIPS.vcd"
-[dumpfile_mtime] "Sat Jul 11 14:42:41 2015"
-[dumpfile_size] 1158464
+[dumpfile_mtime] "Sat Mar 25 14:52:40 2017"
+[dumpfile_size] 1156971
 [savefile] "/home/roberto/cMIPS/tlb.sav"
-[timestart] 0
-[size] 1213 1026
+[timestart] 1622200000
+[size] 1240 1018
 [pos] -1 -1
-*-25.727983 1135900000 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+*-25.727983 1320000000 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
 [treeopen] u_core.
 [treeopen] u_core.u_alu.
-[sst_width] 210
-[signals_width] 213
+[sst_width] 221
+[signals_width] 208
 [sst_expanded] 1
 [sst_vpaned_height] 331
 @28
@@ -26,19 +26,15 @@ u_core.instr_fetched[31:0]
 u_core.pcsel[1:0]
 u_core.excp_pcsel[2:0]
 u_core.annul_twice
+u_core.exception_taken
 @200
 -    decode, reg fetch
 @22
 u_core.rf_instruction[31:0]
 @24
-u_core.a_rs[4:0]
-u_core.a_rt[4:0]
-u_core.a_rd[4:0]
 u_core.exception_dec[31:0]
 @200
 -    exec
-@24
-u_core.u_alu.operation[31:0]
 @22
 u_core.alu_inp_a[31:0]
 u_core.alu_inp_b[31:0]
@@ -56,12 +52,23 @@ d_addr[31:0]
 cpu_d_aval
 wr
 @200
+-    write-back
+@28
+u_core.wb_wreg
+@24
+u_core.wb_a_c[4:0]
+@22
+u_core.wb_c[31:0]
+@28
+u_core.wb_muxc[2:0]
+@22
+u_core.wb_cop0_val[31:0]
+@200
 -   COP-0
 @28
 u_core.tlb_exception
 @24
 u_core.exccode[4:0]
-u_core.exception_num[31:0]
 @22
 u_core.cause[31:0]
 u_core.status[31:0]
@@ -74,26 +81,16 @@ u_core.mm_tlb_stage_mm
 @200
 -
 @22
-u_core.tlb_excp_va[31:13]
-u_core.entryhi_inp[31:0]
-u_core.tlb_entryhi[31:0]
+u_core.index[31:0]
 u_core.entryhi[31:0]
-u_core.tlb_entrylo0[31:0]
-u_core.tlb_dat0_inp[25:0]
 u_core.entrylo0[31:0]
-u_core.tlb_entrylo1[31:0]
-u_core.tlb_dat1_inp[25:0]
 u_core.entrylo1[31:0]
 @200
 -
 @24
 u_core.tlb_adr[31:0]
-@22
 u_core.wired[31:0]
-@24
 u_core.random[31:0]
-@22
-u_core.index[31:0]
 @28
 u_core.hit_mm_d
 u_core.hit_mm_v
@@ -131,17 +128,5 @@ u_core.tlb_dat7_1[25:0]
 u_core.hit_pc
 @24
 u_core.hit_pc_adr[31:0]
-@200
--    write-back
-@28
-u_core.wb_wreg
-@24
-u_core.wb_a_c[4:0]
-@22
-u_core.wb_cop0_val[31:0]
-@28
-u_core.wb_muxc[2:0]
-@22
-u_core.wb_c[31:0]
 [pattern_trace] 1
 [pattern_trace] 0
