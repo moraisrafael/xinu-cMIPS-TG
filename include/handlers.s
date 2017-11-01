@@ -327,3 +327,286 @@ _d_mse: jr    $ra
         #----------------------------------------------------------------
 
 
+
+#=================================================================
+	## TLB handlers
+	## page table entry is { EntryLo0, int0, EntryLo1, int1 }
+	## int{0,1} is
+	## { fill_31..6, Modified_5, Used_4, Writable_3, eXecutable_2,
+	##    Status_10 },
+	## Status: 00=unmapped, 01=mapped, 10=secondary_storage, 11=locked
+	#=================================================================
+	
+
+	#=================================================================
+	# handle TLB Modified exception -- store to page with bit dirty=0
+	#
+	# (a) fix TLB entry, by setting dirty=1 ;
+	# (b) check permissions in PT entry and (maybe) kill the process
+	#     OR mark PT entry as Used and Modified, then
+	#     update TLB entry.
+	#
+	.global _excp_saves
+	.global _excp_0180ret
+	.global handle_Mod
+	.set noreorder
+
+	.equ TP_UNMAP,   0x0000
+	.equ TP_MAPPED,  0x0003  # mapped OR on sec-mem OR locked
+	.equ TP_SEC_MEM, 0x0002  # on sec-mem
+	.equ TP_LOCKED,  0x0003  # locked
+	.equ TP_WR_ABLE, 0x0008  # locked
+	.equ TP_USED,	0x0010	# page was referenced
+	.equ TP_MODIF,	0x0020	# page was modified (is dirty)
+	.equ TLB_DIRTY,	0x0004	# page was modified (is dirty)
+	
+	.ent handle_Mod
+handle_Mod:			# EntryHi points to offending TLB entry
+	tlbp			# what is the offender's index?
+	lui  $k1, %hi(_excp_saves)
+        ori  $k1, $k1, %lo(_excp_saves)
+	sw   $a0,  9*4($k1)	# save registers
+	sw   $a1, 10*4($k1)
+	sw   $a2, 11*4($k1)
+
+	mfc0 $a0, c0_badvaddr
+	andi $a0, $a0, 0x1000	# check if even or odd page
+	beq  $a0, $zero, M_even
+	mfc0 $a0, c0_context
+
+M_odd:	addi $a2, $a0, 12	# address for odd entry (intLo1)
+	mfc0 $k0, c0_entrylo1
+	ori  $k0, $k0, TLB_DIRTY # mark TLB entry as dirty/writable
+	j    M_test
+	mtc0 $k0, c0_entrylo1
+	
+M_even: addi $a2, $a0, 4	# address for even entry (intLo0)
+	mfc0 $k0, c0_entrylo0
+	ori  $k0, $k0, TLB_DIRTY # mark TLB entry as dirty/writable
+	mtc0 $k0, c0_entrylo0
+
+M_test:	lw   $a1, 0($a2)	# read PT[badVAddr].intLo{0,1}
+	mfc0 $k0, c0_badvaddr	# get faulting address
+	andi $a0, $a1, TP_MAPPED	# check if page is mapped
+	nop
+	beq  $a0, $zero, M_seg_fault	# no, abort simulation
+	nop
+
+	andi $a0, $a1, TP_WR_ABLE	# check if page is writable
+	nop
+	beq  $a0, $zero, M_prot_viol	# no, abort simulation
+	nop
+
+	andi $a0, $a1, TP_SEC_MEM	# check if page is in secondary memory
+	nop
+	bne  $a0, $zero, M_sec_mem	# yes, abort simulation
+	nop
+
+	mfc0 $a0, c0_epc	# check if fault is on an instruction
+	nop
+	beq  $a0, $k0, M_prot_viol	# k0 is badVAddr, if so, abort
+	nop
+
+	ori  $a1, $a1, (TP_USED | TP_MODIF) # mark PT entry as modified, used
+	sw   $a1, 0($a2)
+
+	tlbwi			# write entry with dirty bit=1 back to TLB
+	
+	lw   $a0,  9*4($k1)	# restore saved registers and return
+	lw   $a1, 10*4($k1)
+	lw   $a2, 11*4($k1)
+	j    _excp_0180ret
+	nop
+	
+M_seg_fault:	# print message and abort simulation
+	la   $k1, x_IO_BASE_ADDR
+	sw   $k0, 0($k1)
+	jal  cmips_kmsg
+	la   $k1, 3		# segmentation fault
+	nop
+	nop
+	nop
+	wait 0x31
+	
+M_prot_viol:	# print message and abort simulation
+	la   $k1, x_IO_BASE_ADDR
+	sw   $k0, 0($k1)
+	jal  cmips_kmsg
+	la   $k1, 2		# protection violation
+	nop
+	nop
+	nop
+	wait 0x32
+
+M_sec_mem:	# print message and abort simulation
+	la   $k1, x_IO_BASE_ADDR
+	sw   $k0, 0($k1)
+	jal  cmips_kmsg
+	la   $k1, 4		# secondary memory
+	nop
+	nop
+	nop
+	wait 0x33
+	
+	.end handle_Mod
+	#----------------------------------------------------------------
+
+
+	#================================================================
+	# handle TLB Load exception: double-fault caused by a TLB miss
+	#   to the Page Table -- mapping which points to PT is not on TLB
+	#
+	# (a) fix the fault by (re)loading the mapping into TLB[4];
+	# (b) check permissions in PT entry and (maybe) kill the process.
+	#
+	.global handle_TLBL
+	.global _PT
+        .set MIDDLE_RAM, (x_DATA_BASE_ADDR + (x_DATA_MEM_SZ/2))
+
+	.ent handle_TLBL
+handle_TLBL:			# EntryHi points to offending TLB entry
+	tlbp			# probe it to find the offender's index
+	lui  $k1, %hi(_excp_saves)
+        ori  $k1, $k1, %lo(_excp_saves)
+	sw   $a0,  9*4($k1)
+	sw   $a1, 10*4($k1)
+	sw   $a2, 11*4($k1)
+
+	mfc0 $a0, c0_badvaddr
+
+	# check is fault is to address below the PT
+	la   $a1, (_PT + (x_INST_BASE_ADDR >>13)*16)
+
+	slt  $a2, $a0, $a1	# a2 <- (badVAddr <= PageTable_bottom)
+	bne  $a2, $zero, L_chks	#   fault is not to PageTable
+	nop
+
+	# check is fault is to address above the PT
+	# la   $a1, ( (_PT+2*4096) + (x_INST_BASE_ADDR >>13)*16)
+
+	# slt  $a2, $a1, $a0	# a2 <- (badVAddr > PageTable_top)
+	# bne  $a2, $zero, L_chks	#   fault is not to PageTable
+	# nop
+	
+	# this is same code as in start.s
+        # get physical page number for two pages at the bottom of PageTable
+        la    $a0, ( MIDDLE_RAM >>13 )<<13
+        mtc0  $a0, c0_entryhi           # tag for bottom double-page
+
+        la    $a0, ( (MIDDLE_RAM + 0*4096) >>12 )<<6
+        ori   $a1, $a0, 0b00000000000000000000000000000111 # ccc=0, d,v,g1
+        mtc0  $a1, c0_entrylo0          # bottom page (even)
+
+        la    $a0, ( (MIDDLE_RAM + 1*4096) >>12 )<<6
+        ori   $a1, $a0, 0b00000000000000000000000000000111 # ccc=0, d,v,g1
+        mtc0  $a1, c0_entrylo1          # bottom page + 1 (odd)
+
+        # and write it to TLB[4]
+        li    $k0, 4
+        mtc0  $k0, c0_index
+        tlbwi
+	j     L_ret		# all work done, return
+	nop
+
+L_chks: andi $a0, $a0, 0x1000	# check if even or odd page
+	nop
+	beq  $a0, $zero, L_even
+	mfc0 $a0, c0_context
+
+L_odd:	j    L_test
+	addi $a2, $a0, 12	# address for odd intLo1 entry
+	
+L_even: addi $a2, $a0, 4	# address for even intLo0 entry
+
+L_test:	lw   $a1, 0($a2)	# get intLo{0,1}
+	mfc0 $k0, c0_badvaddr	# get faulting address for printing
+	andi $a0, $a1, TP_MAPPED # check if page is mapped
+	nop
+	beq  $a0, $zero, M_seg_fault	# no, abort simulation
+	nop
+
+	andi $a0, $a1, TP_SEC_MEM	# check if page is in secondary memory
+	nop
+	bne  $a0, $zero, M_sec_mem	# yes, abort simulation
+	nop
+
+	ori  $a1, $a1, TP_USED	# mark PT entry as used
+	# sw   $a1, 0($a2)
+
+	# if this were handler_TLBS, now is the time to also mark the
+	#    PT entry as Modified
+	# mark PT entry as used, writable and modified
+	ori  $a1, $a1, (TP_USED | TP_MODIF | TP_WR_ABLE)
+	sw   $a1, 0($a2)
+	
+L_ret:	lw   $a0,  9*4($k1)	# nothing else to do, return
+	lw   $a1, 10*4($k1)
+	lw   $a2, 11*4($k1)
+	j    _excp_0180ret
+	nop
+
+	.end handle_TLBL
+	#----------------------------------------------------------------
+
+
+	#================================================================
+	# purge an entry from the TLB
+	# int TLB_purge(void *V_addr)
+	#   returns 0 if V_addr purged, 1 if V_addr not in TLB (probe failure)
+	#
+	.global TLB_purge
+	.text
+	.set noreorder
+	.ent TLB_purge
+TLB_purge:
+	srl  $a0, $a0, 13	# clear out in-page address bits
+	sll  $a0, $a0, 13	# 
+	mtc0 $a0, c0_entryhi
+	nop
+	tlbp			# probe the TLB
+	nop
+	mfc0 $a0, c0_index	# check for hit
+	srl  $a0, $a0, 31	# keeo only MSbit
+	nop
+	bne  $a0, $zero, pu_miss # address not in TLB
+	move $v0, $a0		# V_addr not in TLB
+
+	tlbr			# read the entry
+	li   $a0, -8192		# -8192 = 0xffff.e000
+	mtc0 $a0, c0_entryhi	# and write an un-mapped address to tag
+
+	addi $v0, $zero, -3	# -3 = 0xffff.fffd to clear valid bit
+	mfc0 $a0, c0_entrylo0	# invalidate the mappings
+	and  $a0, $v0, $a0
+	mtc0 $a0, c0_entrylo0
+
+	mfc0 $a0, c0_entrylo1
+	and  $a0, $v0, $a0
+	mtc0 $a0, c0_entrylo1
+	move $v0, $zero		# V_addr was purged from TLB
+
+	tlbwi			# write invalid mappings to TLB
+	ehb
+	
+pu_miss: jr  $ra
+	nop
+	.end TLB_purge
+	##---------------------------------------------------------------
+
+
+	#================================================================	
+	# print message to simulator's stdout end stop simulation
+	#
+	# k0 holds exception code
+	# exception_report(code, cause, epc, badVAddr)
+	.text
+	.global excp_report, exception_report
+	.ent excp_report
+excp_report:
+	srl  $a0, $k0, 3
+	mfc0 $a1, c0_cause
+	mfc0 $a2, c0_epc
+	mfc0 $a3, c0_badvaddr
+	j    exception_report
+	nop
+	.end excp_report
