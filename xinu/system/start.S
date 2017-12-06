@@ -39,6 +39,18 @@
 	.ent _start
 _start:
 
+		# get physical page number for 2 pages at the bottom of RAM, for .data
+		#  needed so simulations without a page table will not break
+		#  read TLB[4] and write it to TLB[2]
+		li    k0, 4
+		mtc0  k0, c0_index
+		ehb
+		tlbr
+		li    k1, 2
+		mtc0  k1, c0_index
+		ehb
+		tlbwi
+
 	/* Pick up flash size from a3 (where the boot loader leaves it)	*/
 
 	# sw	a3, flash_size
@@ -894,7 +906,7 @@ handle_TLBL:			# EntryHi points to offending TLB entry
 	nop
 
 	# check is fault is to address above the PT
-	# la   a1, ( (_PT+2*4096) + (x_INST_BASE_ADDR >>13)*16)
+	# la   a1, ( (_PT+4*4096) + (x_INST_BASE_ADDR >>13)*16)
 
 	# slt  a2, a1, a0	# a2 <- (badVAddr > PageTable_top)
 	# bne  a2, zero, L_chks	#   fault is not to PageTable
